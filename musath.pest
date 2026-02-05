@@ -1,0 +1,41 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+file = _{
+    SOI ~
+    func_declaration* ~
+    EOI
+}
+
+func_declaration = { func_signature ~ "=" ~ expr }
+
+func_signature = ${ ident ~ "(" ~ (ident ~ ",")* ~ ident? ~ ")" }
+
+expr = !{ prefix* ~ atom ~ postfix* ~ (infix ~ prefix* ~ atom ~ postfix* )* }
+
+atom = _{ func_call | ident | number | "(" ~ expr ~ ")" }
+
+ident = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+
+func_call = ${ ident ~ "(" ~ func_args ~ ")" }
+
+func_args = _{ expr? ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ expr)* }
+
+number = @{ decimal | integer }
+
+decimal = @{ integer ~ "." ~ ASCII_DIGIT+ }
+
+integer = @{ ASCII_NONZERO_DIGIT ~ ASCII_DIGIT+ | ASCII_DIGIT }
+
+infix = _{ add | sub | mul | div | pow | modulo }
+    add = { "+" }
+    sub = { "-" }
+    mul = { "*" }
+    div = { "/" }
+    pow = { "^" }
+    modulo = { "%" }
+
+prefix = _{ neg }
+    neg = { "-" }
+
+postfix = _{ fac }
+    fac = { "!" }

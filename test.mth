@@ -1,0 +1,3 @@
+test(a) = sin(440 * a * tau)
+test2(a) = sin(660 * a * tau)
+output(t) = mix(test(((t * 4) % 0.5)^1.5), test2(t))
