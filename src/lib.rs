@@ -1,4 +1,4 @@
-use std::{f64::consts::{PI, TAU}, path::Path};
+use std::{f64::consts::{E, PI, TAU}, path::Path, thread::sleep};
 
 use chrono::Duration;
 use hound::{WavSpec, WavWriter};
@@ -43,6 +43,7 @@ lazy_static! {
         let mut builtin_numbers = HashMap::new();
         builtin_numbers.insert(String::from("pi"), PI);
         builtin_numbers.insert(String::from("tau"), TAU);
+        builtin_numbers.insert(String::from("e"), E);
         builtin_numbers
     };
 }

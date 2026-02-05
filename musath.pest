@@ -8,7 +8,9 @@ file = _{
 
 func_declaration = { func_signature ~ "=" ~ expr }
 
-func_signature = ${ ident ~ "(" ~ (ident ~ ",")* ~ ident? ~ ")" }
+func_signature = ${ ident ~ "(" ~ func_params ~ ")" }
+
+func_params = _{ ident? ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ ident)* }
 
 expr = !{ prefix* ~ atom ~ postfix* ~ (infix ~ prefix* ~ atom ~ postfix* )* }
 

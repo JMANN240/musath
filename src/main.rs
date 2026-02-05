@@ -18,5 +18,7 @@ fn main() {
 
     let file = Musath::parse(pairs);
 
-    render("output.wav", Duration::new(1, 0).unwrap(), file).unwrap();
+    println!("{}", file);
+
+    render("output.wav", Duration::new(4, 0).unwrap(), file).unwrap();
 }

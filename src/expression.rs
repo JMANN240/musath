@@ -117,11 +117,12 @@ impl Expression {
         match self {
             Self::Expression(expression) => expression.eval(functions, arguments),
             Self::Number(number) => *number,
-            Self::Identifier(identifier) => *arguments.get(identifier).unwrap_or_else(|| {
-                BUILT_IN_NUMBERS
-                    .get(identifier)
-                    .expect(&format!("undefined identifier {}", identifier))
-            }),
+            Self::Identifier(identifier) => {
+                *arguments.get(identifier).unwrap_or_else(|| {
+                    BUILT_IN_NUMBERS
+                        .get(identifier)
+                        .expect(&format!("undefined identifier {}", identifier))
+                })},
             Self::FunctionCall {
                 identifier,
                 arguments: call_arguments,

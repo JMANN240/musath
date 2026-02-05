@@ -34,10 +34,7 @@ impl Musath {
             .get("output")
             .expect("missing output function");
 
-        let mut arguments = HashMap::new();
-        arguments.insert(String::from("t"), t);
-
-        output.expression().eval(&self.functions, &arguments)
+        output.eval(&self.functions, &vec![t])
     }
 }
 
