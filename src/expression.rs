@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use pest::Parser;
 
-use pest::iterators::Pairs;
+use crate::{
+    BUILT_IN_FUNCTIONS, BUILT_IN_NUMBERS, MusathParser, PRATT_PARSER, Rule, context::{self, Context},
+};
 
-use crate::{BUILT_IN_FUNCTIONS, BUILT_IN_NUMBERS, PRATT_PARSER, Rule, function::Function};
-
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     Expression(Box<Expression>),
     Number(f64),
@@ -22,14 +22,15 @@ pub enum Expression {
         op: PrefixUnOp,
         right: Box<Expression>,
     },
-    PostfixUnOp {
-        left: Box<Expression>,
-        op: PostfixUnOp,
-    },
 }
 
 impl Expression {
-    pub fn parse(pairs: Pairs<Rule>) -> Self {
+    pub fn parse(input: &str) -> Self {
+        let expression = MusathParser::parse(Rule::expr, input)
+            .unwrap()
+            .next()
+            .unwrap();
+
         PRATT_PARSER
             .map_primary(|primary| match primary.as_rule() {
                 Rule::number => Expression::Number(primary.as_str().parse::<f64>().unwrap()),
@@ -47,9 +48,7 @@ impl Expression {
 
                             for pair in pairs {
                                 match pair.as_rule() {
-                                    Rule::expr => {
-                                        arguments.push(Expression::parse(pair.into_inner()))
-                                    }
+                                    Rule::expr => arguments.push(Expression::parse(pair.as_str())),
                                     rule => unreachable!("expected expression, found {:?}", rule),
                                 }
                             }
@@ -62,31 +61,18 @@ impl Expression {
                         rule => unreachable!("expected identifier, found {:?}", rule),
                     }
                 }
-                Rule::expr => Expression::Expression(Box::new(Expression::parse(primary.into_inner()))),
+                Rule::expr => Expression::Expression(Box::new(Expression::parse(primary.as_str()))),
                 rule => unreachable!("Expr::parse expected number, found {:?}", rule),
             })
             .map_prefix(|op, right| {
                 let op = match op.as_rule() {
                     Rule::neg => PrefixUnOp::Negate,
-                    rule => unreachable!("Expr::parse expected prefix operation, found {:?}", rule),
+                    rule => unreachable!("expected prefix operation, found {:?}", rule),
                 };
 
                 Expression::PrefixUnOp {
                     op,
                     right: Box::new(right),
-                }
-            })
-            .map_postfix(|left, op| {
-                let op = match op.as_rule() {
-                    Rule::fac => PostfixUnOp::Factorial,
-                    rule => {
-                        unreachable!("Expr::parse expected postfix operation, found {:?}", rule)
-                    }
-                };
-
-                Expression::PostfixUnOp {
-                    left: Box::new(left),
-                    op,
                 }
             })
             .map_infix(|left, op, right| {
@@ -97,7 +83,7 @@ impl Expression {
                     Rule::div => InfixBinOp::Divide,
                     Rule::pow => InfixBinOp::Power,
                     Rule::modulo => InfixBinOp::Modulo,
-                    rule => unreachable!("Expr::parse expected infix operation, found {:?}", rule),
+                    rule => unreachable!("expected infix operation, found {:?}", rule),
                 };
 
                 Expression::InfixBinOp {
@@ -106,59 +92,52 @@ impl Expression {
                     right: Box::new(right),
                 }
             })
-            .parse(pairs)
+            .parse(expression.into_inner())
     }
 
-    pub fn eval(
-        &self,
-        functions: &HashMap<String, Function>,
-        arguments: &HashMap<String, f64>,
-    ) -> f64 {
+    pub fn eval(&self, context: &Context) -> f64 {
         match self {
-            Self::Expression(expression) => expression.eval(functions, arguments),
+            Self::Expression(expression) => expression.eval(context),
             Self::Number(number) => *number,
-            Self::Identifier(identifier) => {
-                *arguments.get(identifier).unwrap_or_else(|| {
+            Self::Identifier(identifier) => *context
+                .values()
+                .get(identifier)
+                .unwrap()
+                .last()
+                .unwrap_or_else(|| {
                     BUILT_IN_NUMBERS
                         .get(identifier)
                         .expect(&format!("undefined identifier {}", identifier))
-                })},
+                }),
             Self::FunctionCall {
                 identifier,
-                arguments: call_arguments,
+                arguments,
             } => {
-                if let Some(function) = functions.get(identifier) {
-                    function.eval(
-                        functions,
-                        &call_arguments
-                            .iter()
-                            .map(|argument| argument.eval(functions, arguments))
-                            .collect::<Vec<f64>>(),
-                    )
+                if let Some(function) = context.functions().get(identifier) {
+                    let mut inner_context = context.clone();
+
+                    for (identifier, value) in function.signature().parameters().iter().zip(arguments.iter()) {
+                        inner_context.push_value(identifier, value.eval(&context));
+                    }
+
+                    function.eval(&inner_context)
                 } else {
                     let builtin = BUILT_IN_FUNCTIONS
                         .get(identifier)
                         .expect(&format!("undefined function {}", identifier));
 
-                    builtin(
-                        &call_arguments
-                            .iter()
-                            .map(|argument| argument.eval(functions, arguments))
-                            .collect::<Vec<f64>>(),
-                    )
+                    builtin(context, arguments)
                 }
             }
-            Self::PrefixUnOp { op, right } => op.eval(right.eval(functions, arguments)),
-            Self::InfixBinOp { left, op, right } => op.eval(
-                left.eval(functions, arguments),
-                right.eval(functions, arguments),
-            ),
-            Self::PostfixUnOp { left, op } => op.eval(left.eval(functions, arguments)),
+            Self::PrefixUnOp { op, right } => op.eval(right.eval(context)),
+            Self::InfixBinOp { left, op, right } => {
+                op.eval(left.eval(context), right.eval(context))
+            }
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InfixBinOp {
     Add,
     Subtract,
@@ -181,7 +160,7 @@ impl InfixBinOp {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrefixUnOp {
     Negate,
 }
@@ -194,15 +173,24 @@ impl PrefixUnOp {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum PostfixUnOp {
-    Factorial,
-}
+#[cfg(test)]
+mod tests {
+    use std::f64::consts::PI;
 
-impl PostfixUnOp {
-    pub fn eval(&self, left: f64) -> f64 {
-        match self {
-            Self::Factorial => left,
-        }
+    use super::*;
+
+    #[test]
+    fn test_expression() {
+        let mut context = Context::new();
+
+        assert_eq!(Expression::parse("1.0").eval(&context), 1.0);
+
+        context.push_value("t", 2.0);
+
+        assert_eq!(Expression::parse("t^2").eval(&context), 4.0);
+
+        context.push_value("pi", PI);
+
+        assert_eq!(Expression::parse("sin(2*pi)").eval(&context), 0.0);
     }
 }

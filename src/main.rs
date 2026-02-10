@@ -1,8 +1,7 @@
 use std::path::PathBuf;
 
 use chrono::Duration;
-use musath::{MusathParser, Rule, file::Musath, render};
-use pest::Parser;
+use musath::{file::Musath, header::HeaderValue, render};
 
 #[derive(clap::Parser)]
 struct Args {
@@ -14,11 +13,30 @@ fn main() {
 
     let unparsed_file = std::fs::read_to_string(args.path).expect("cannot read file");
 
-    let pairs = MusathParser::parse(Rule::file, &unparsed_file).expect("could not parse file");
+    let file = Musath::parse(&unparsed_file);
 
-    let file = Musath::parse(pairs);
+    let output_filename_header_value = file
+        .header()
+        .key_values()
+        .get("TITLE")
+        .cloned()
+        .unwrap_or(HeaderValue::String(String::from("output")));
 
-    println!("{}", file);
+    let duration_header_value = file
+        .header()
+        .key_values()
+        .get("DURATION")
+        .cloned()
+        .unwrap_or(HeaderValue::Number(30.0));
 
-    render("output.wav", Duration::new(4, 0).unwrap(), file).unwrap();
+    if let HeaderValue::String(output_filename) = output_filename_header_value
+        && let HeaderValue::Number(duration) = duration_header_value
+    {
+        render(
+            format!("{}.wav", output_filename),
+            Duration::new(duration as i64, 0).unwrap(),
+            file,
+        )
+        .unwrap();
+    }
 }

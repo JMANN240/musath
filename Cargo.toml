@@ -10,3 +10,4 @@ hound = "3.5.1"
 lazy_static = "1.5.0"
 pest = "2.8.6"
 pest_derive = { version = "2.8.6", features = ["grammar-extras"] }
+rayon = "1.11.0"

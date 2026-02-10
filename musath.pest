@@ -2,9 +2,20 @@ WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
 file = _{
     SOI ~
-    func_declaration* ~
+    header ~
+    body ~
     EOI
 }
+
+header = { header_declaration* }
+
+header_declaration = { header_key ~ "=" ~ header_value }
+
+header_key = { ( ASCII_ALPHA_UPPER | "_" )+ }
+
+header_value = { string_outer | number }
+
+body = { func_declaration* }
 
 func_declaration = { func_signature ~ "=" ~ expr }
 
@@ -21,6 +32,12 @@ ident = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
 func_call = ${ ident ~ "(" ~ func_args ~ ")" }
 
 func_args = _{ expr? ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ expr)* }
+
+string_outer = _{ "\"" ~ string ~ "\"" }
+
+string = { string_inner* }
+
+string_inner = _{ !("\"") ~ ASCII }
 
 number = @{ decimal | integer }
 

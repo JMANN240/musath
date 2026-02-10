@@ -1,3 +1,5 @@
+TEST = "test"
+
 sine(t, freq) = sin(freq * t * tau)
 chirp(t, base_freq, range, secs) = sine(t, base_freq + (range * (t % secs)))
 output(t) = sin(tau*(440*(t%0.5)+220*(t%0.5)^2))
