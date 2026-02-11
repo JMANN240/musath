@@ -1,32 +1,33 @@
-use std::fmt::Display;
+use pest::iterators::Pairs;
 
-use pest::Parser;
-
-use crate::{MusathParser, Rule, body::Body, header::Header};
+use crate::{
+    Rule,
+    body::Body,
+    expression::{Expression, Primary},
+    header::Header,
+};
 
 #[derive(Debug)]
-pub struct Musath {
+pub struct Document {
     header: Header,
     body: Body,
 }
 
-impl Musath {
-    pub fn parse(input: &str) -> Self {
-        let pairs = MusathParser::parse(Rule::file, input).unwrap();
-
+impl Document {
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Self {
         let mut header = None;
         let mut body = None;
 
         for pair in pairs {
             match pair.as_rule() {
                 Rule::header => {
-                    header = Some(Header::parse(pair.as_str()));
+                    header = Some(Header::parse(&mut pair.into_inner()));
                 }
                 Rule::body => {
-                    body = Some(Body::parse(pair.as_str()));
+                    body = Some(Body::parse(&mut pair.into_inner()));
                 }
                 Rule::EOI => (),
-                rule => unreachable!("expected function or EOI, found {:?}", rule),
+                _ => unreachable!("expected header, body, EOI, found {:?}", pair),
             };
         }
 
@@ -56,16 +57,11 @@ impl Musath {
 
         context.push_value("t", t);
 
-        output.eval(&context)
-    }
-}
-
-impl Display for Musath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for function in self.body().context().functions().values() {
-            writeln!(f, "{}", function)?;
-        }
-
-        Ok(())
+        output.eval(
+            &[Box::new(Expression::Primary(Primary::Identifier(
+                String::from("t"),
+            )))],
+            &context,
+        )
     }
 }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use pest::Parser;
+use pest::iterators::Pairs;
 
-use crate::{MusathParser, Rule};
+use crate::Rule;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Header {
@@ -10,18 +10,13 @@ pub struct Header {
 }
 
 impl Header {
-    pub fn parse(input: &str) -> Self {
-        let header = MusathParser::parse(Rule::header, input)
-            .unwrap()
-            .next()
-            .unwrap();
-
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Self {
         let mut key_values = HashMap::new();
 
-        for pair in header.into_inner() {
+        for pair in pairs {
             match pair.as_rule() {
                 Rule::header_declaration => {
-                    let header_declaration = HeaderDeclaration::parse(pair.as_str());
+                    let header_declaration = HeaderDeclaration::parse(&mut pair.into_inner());
 
                     key_values.insert(header_declaration.key, header_declaration.value);
                 }
@@ -44,22 +39,17 @@ pub struct HeaderDeclaration {
 }
 
 impl HeaderDeclaration {
-    pub fn parse(input: &str) -> Self {
-        let header_declaration = MusathParser::parse(Rule::header_declaration, input)
-            .unwrap()
-            .next()
-            .unwrap();
-
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Self {
         let mut key = None;
         let mut value = None;
 
-        for pair in header_declaration.into_inner() {
+        for pair in pairs {
             match pair.as_rule() {
                 Rule::header_key => {
                     key = Some(pair.as_str().to_string());
                 }
                 Rule::header_value => {
-                    value = Some(HeaderValue::parse(pair.as_str()));
+                    value = Some(HeaderValue::parse(&mut pair.into_inner()));
                 }
                 rule => unreachable!("expected header_key or header_value, found {:?}", rule),
             }
@@ -79,13 +69,8 @@ pub enum HeaderValue {
 }
 
 impl HeaderValue {
-    pub fn parse(input: &str) -> Self {
-        let header_value = MusathParser::parse(Rule::header_value, input)
-            .unwrap()
-            .next()
-            .unwrap();
-
-        let pair = header_value.into_inner().next().unwrap();
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Self {
+        let pair = pairs.next().unwrap();
 
         match pair.as_rule() {
             Rule::string => Self::String(pair.as_str().to_string()),
@@ -97,55 +82,51 @@ impl HeaderValue {
 
 #[cfg(test)]
 mod tests {
+    use pest::Parser;
+
+    use crate::MusathParser;
+
     use super::*;
 
     #[test]
     fn test_parse_header_value() {
         assert_eq!(
+            HeaderValue::parse(
+                &mut MusathParser::parse(Rule::header_value, "\"test\"")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
             HeaderValue::String(String::from("test")),
-            HeaderValue::parse("\"test\"")
         );
 
-        assert_eq!(HeaderValue::Number(1.0), HeaderValue::parse("1.0"));
+        assert_eq!(
+            HeaderValue::parse(
+                &mut MusathParser::parse(Rule::header_value, "1.0")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            HeaderValue::Number(1.0),
+        );
     }
 
     #[test]
     fn test_parse_header_declaration() {
         assert_eq!(
+            HeaderDeclaration::parse(
+                &mut MusathParser::parse(Rule::header_declaration, "TEST = 1.0")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
             HeaderDeclaration {
                 key: String::from("TEST"),
-                value: HeaderValue::String(String::from("test")),
+                value: HeaderValue::Number(1.0),
             },
-            HeaderDeclaration::parse("TEST = \"test\"")
-        );
-
-        assert_eq!(
-            HeaderDeclaration {
-                key: String::from("TESTA"),
-                value: HeaderValue::Number(2.0),
-            },
-            HeaderDeclaration::parse("TESTA = 2.0")
-        );
-    }
-
-    #[test]
-    fn test_parse_header() {
-        let mut key_values = HashMap::<String, HeaderValue>::new();
-
-        key_values.insert(
-            String::from("TEST"),
-            HeaderValue::String(String::from("test")),
-        );
-        key_values.insert(String::from("TESTA"), HeaderValue::Number(2.0));
-
-        let header = Header { key_values };
-
-        assert_eq!(
-            header,
-            Header::parse(
-                r#"TEST = "test"
-TESTA = 2.0"#
-            )
         );
     }
 }

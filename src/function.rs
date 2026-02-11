@@ -1,40 +1,37 @@
-use std::fmt::Display;
+use std::{fmt::Debug, sync::Arc};
 
-use pest::Parser;
+use pest::iterators::Pairs;
 
-use crate::{MusathParser, Rule, context::Context, expression::Expression};
+use crate::{Rule, context::Context, expression::Expression};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Function {
     signature: FunctionSignature,
-    expression: Expression,
+    body: FunctionBody,
 }
 
 impl Function {
-    pub fn signature(&self) -> &FunctionSignature {
-        &self.signature
+    pub fn new(identifier: impl Into<String>, body: FunctionBodyClosure) -> Self {
+        Self {
+            signature: FunctionSignature {
+                identifier: identifier.into(),
+                parameters: Vec::new(),
+            },
+            body: FunctionBody::Closure(body),
+        }
     }
 
-    pub fn expression(&self) -> &Expression {
-        &self.expression
-    }
-
-    pub fn parse(input: &str) -> Self {
-        let function_declaration = MusathParser::parse(Rule::func_declaration, input)
-            .unwrap()
-            .next()
-            .unwrap();
-
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Self {
         let mut signature = None;
         let mut expression = None;
 
-        for pair in function_declaration.into_inner() {
+        for pair in pairs {
             match pair.as_rule() {
-                Rule::func_signature => {
-                    signature = Some(FunctionSignature::parse(pair.as_str()));
+                Rule::function_signature => {
+                    signature = Some(FunctionSignature::parse(&mut pair.into_inner()));
                 }
-                Rule::expr => {
-                    expression = Some(Expression::parse(pair.as_str()));
+                Rule::expression => {
+                    expression = Some(Expression::parse(&mut pair.into_inner()));
                 }
                 rule => unreachable!(
                     "expected function identifier or expression, found {:?}",
@@ -45,24 +42,20 @@ impl Function {
 
         Self {
             signature: signature.unwrap(),
-            expression: expression.unwrap(),
+            body: FunctionBody::Expression(expression.unwrap()),
         }
     }
 
-    pub fn eval(&self, context: &Context) -> f64 {
-        self.expression().eval(context)
+    pub fn signature(&self) -> &FunctionSignature {
+        &self.signature
     }
-}
 
-impl Display for Function {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}({}) = {:?}",
-            self.signature().identifier(),
-            self.signature().parameters().join(", "),
-            self.expression()
-        )
+    pub fn body(&self) -> &FunctionBody {
+        &self.body
+    }
+
+    pub fn eval(&self, arguments: &[Box<Expression>], context: &Context) -> f64 {
+        self.body().eval(arguments, context)
     }
 }
 
@@ -80,24 +73,15 @@ impl FunctionSignature {
         &self.parameters
     }
 
-    pub fn parse(input: &str) -> Self {
-        let function_signature = MusathParser::parse(Rule::func_signature, input)
-            .unwrap()
-            .next()
-            .unwrap();
-
-        let mut pairs = function_signature.into_inner();
-
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Self {
         let identifier = pairs.next().unwrap().as_str().to_string();
 
-        let mut parameters = Vec::new();
-
-        for pair in pairs {
-            match pair.as_rule() {
-                Rule::ident => parameters.push(pair.as_str().to_string()),
-                rule => unreachable!("expected identifier, found {:?}", rule),
-            }
-        }
+        let parameters = pairs
+            .map(|pair| match pair.as_rule() {
+                Rule::identifier => pair.as_str().to_string(),
+                _ => unreachable!("expected identifier, found {:?}", pair),
+            })
+            .collect();
 
         Self {
             identifier,
@@ -106,32 +90,95 @@ impl FunctionSignature {
     }
 }
 
+pub type FunctionBodyClosure = Arc<dyn Fn(&[Box<Expression>], &Context) -> f64 + Send + Sync>;
+
+#[derive(Clone)]
+pub enum FunctionBody {
+    Closure(FunctionBodyClosure),
+    Expression(Expression),
+}
+
+impl Debug for FunctionBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Closure(_) => write!(f, "anonymous closure"),
+            Self::Expression(expression) => write!(f, "{:?}", expression),
+        }
+    }
+}
+
+impl PartialEq for FunctionBody {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Closure(self_closure), Self::Closure(other_closure)) => {
+                Arc::ptr_eq(self_closure, other_closure)
+            }
+            (Self::Expression(self_expression), Self::Expression(other_expression)) => {
+                self_expression.eq(other_expression)
+            }
+            _ => false,
+        }
+    }
+}
+
+impl FunctionBody {
+    pub fn eval(&self, arguments: &[Box<Expression>], context: &Context) -> f64 {
+        match self {
+            Self::Closure(closure) => closure(arguments, context),
+            Self::Expression(expression) => expression.eval(context),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use pest::Parser;
+
+    use crate::{
+        MusathParser,
+        expression::{BinaryOperator, Primary},
+    };
+
     use super::*;
 
     #[test]
     fn test_parse_function_signature() {
         assert_eq!(
+            FunctionSignature::parse(
+                &mut MusathParser::parse(Rule::function_signature, "test(t)")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
             FunctionSignature {
                 identifier: String::from("test"),
                 parameters: vec![String::from("t")],
             },
-            FunctionSignature::parse("test(t)")
         );
     }
 
     #[test]
     fn test_parse_function() {
         assert_eq!(
+            Function::parse(
+                &mut MusathParser::parse(Rule::function, "test(t) = t + 1")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
             Function {
                 signature: FunctionSignature {
                     identifier: String::from("test"),
                     parameters: vec![String::from("t")],
                 },
-                expression: Expression::Number(1.0)
+                body: FunctionBody::Expression(Expression::Binary(
+                    Box::new(Expression::Primary(Primary::Identifier(String::from("t")))),
+                    BinaryOperator::Add,
+                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                ),),
             },
-            Function::parse("test(t) = 1.0")
         );
     }
 }

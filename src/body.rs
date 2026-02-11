@@ -1,8 +1,6 @@
-use std::collections::HashMap;
+use pest::iterators::Pairs;
 
-use pest::Parser;
-
-use crate::{MusathParser, Rule, context::Context, function::Function};
+use crate::{Rule, context::Context, function::Function};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Body {
@@ -10,22 +8,13 @@ pub struct Body {
 }
 
 impl Body {
-    pub fn parse(input: &str) -> Self {
-        let body = MusathParser::parse(Rule::body, input)
-            .unwrap()
-            .next()
-            .unwrap();
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Self {
+        let mut context = Context::default();
 
-        let mut context = Context::new();
-
-        for pair in body.into_inner() {
+        for pair in pairs {
             match pair.as_rule() {
-                Rule::func_declaration => {
-                    let function = Function::parse(pair.as_str());
-
-                    context.functions_mut().insert(function.signature().identifier().to_string(), function);
-                }
-                rule => unreachable!("expected func_declaration, found {:?}", rule),
+                Rule::function => context.set_function(Function::parse(&mut pair.into_inner())),
+                _ => unreachable!("expected function, found {:?}", pair),
             };
         }
 

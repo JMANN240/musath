@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use chrono::Duration;
-use musath::{file::Musath, header::HeaderValue, render};
+use musath::{MusathParser, Rule, document::Document, header::HeaderValue, render};
+use pest::Parser;
 
 #[derive(clap::Parser)]
 struct Args {
@@ -13,7 +14,7 @@ fn main() {
 
     let unparsed_file = std::fs::read_to_string(args.path).expect("cannot read file");
 
-    let file = Musath::parse(&unparsed_file);
+    let file = Document::parse(&mut MusathParser::parse(Rule::document, &unparsed_file).unwrap());
 
     let output_filename_header_value = file
         .header()

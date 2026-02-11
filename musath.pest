@@ -1,6 +1,6 @@
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
-file = _{
+document = _{
     SOI ~
     header ~
     body ~
@@ -8,53 +8,38 @@ file = _{
 }
 
 header = { header_declaration* }
-
 header_declaration = { header_key ~ "=" ~ header_value }
-
 header_key = { ( ASCII_ALPHA_UPPER | "_" )+ }
-
 header_value = { string_outer | number }
 
-body = { func_declaration* }
+body = { function* }
 
-func_declaration = { func_signature ~ "=" ~ expr }
+integer = @{ ASCII_DIGIT+ }
+decimal = @{ integer ~ "." ~ integer }
+number = { decimal | integer }
 
-func_signature = ${ ident ~ "(" ~ func_params ~ ")" }
-
-func_params = _{ ident? ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ ident)* }
-
-expr = !{ prefix* ~ atom ~ postfix* ~ (infix ~ prefix* ~ atom ~ postfix* )* }
-
-atom = _{ func_call | ident | number | "(" ~ expr ~ ")" }
-
-ident = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
-
-func_call = ${ ident ~ "(" ~ func_args ~ ")" }
-
-func_args = _{ expr? ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ expr)* }
+identifier = { ( ASCII_ALPHA | "_" )+ }
 
 string_outer = _{ "\"" ~ string ~ "\"" }
-
 string = { string_inner* }
-
 string_inner = _{ !("\"") ~ ASCII }
 
-number = @{ decimal | integer }
+function = { function_signature ~ "=" ~ expression }
+function_signature = ${ identifier ~ "(" ~ WHITESPACE* ~ identifier? ~ ( WHITESPACE* ~ "," ~ WHITESPACE* ~ identifier )* ~ WHITESPACE* ~ ")" }
+function_call = ${ identifier ~ "(" ~ WHITESPACE* ~ expression? ~ ( WHITESPACE* ~ "," ~ WHITESPACE* ~ expression )* ~ WHITESPACE* ~ ")" }
 
-decimal = @{ integer ~ "." ~ ASCII_DIGIT+ }
+expression = !{ remainder }
+remainder = { term ~ ( rem ~ term )* }
+term = { factor ~ ( ( add | sub ) ~ factor )* }
+factor = { power ~ ( ( mul | div ) ~ power )* }
+power = { unary ~ ( pow ~ unary )* }
+unary = { neg ~ unary | primary }
+primary = { number | function_call | identifier | "(" ~ expression ~ ")" }
 
-integer = @{ ASCII_NONZERO_DIGIT ~ ASCII_DIGIT+ | ASCII_DIGIT }
-
-infix = _{ add | sub | mul | div | pow | modulo }
-    add = { "+" }
-    sub = { "-" }
-    mul = { "*" }
-    div = { "/" }
-    pow = { "^" }
-    modulo = { "%" }
-
-prefix = _{ neg }
-    neg = { "-" }
-
-postfix = _{ fac }
-    fac = { "!" }
+add = { "+" }
+sub = { "-" }
+mul = { "*" }
+div = { "/" }
+pow = { "^" }
+rem = { "%" }
+neg = { "-" }

@@ -1,196 +1,742 @@
-use pest::Parser;
+use pest::iterators::Pairs;
 
-use crate::{
-    BUILT_IN_FUNCTIONS, BUILT_IN_NUMBERS, MusathParser, PRATT_PARSER, Rule, context::{self, Context},
-};
+use crate::{Rule, context::Context};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
-    Expression(Box<Expression>),
-    Number(f64),
-    Identifier(String),
-    FunctionCall {
-        identifier: String,
-        arguments: Vec<Expression>,
-    },
-    InfixBinOp {
-        left: Box<Expression>,
-        op: InfixBinOp,
-        right: Box<Expression>,
-    },
-    PrefixUnOp {
-        op: PrefixUnOp,
-        right: Box<Expression>,
-    },
+    Primary(Primary),
+    Unary(UnaryOperator, Box<Expression>),
+    Binary(Box<Expression>, BinaryOperator, Box<Expression>),
 }
 
 impl Expression {
-    pub fn parse(input: &str) -> Self {
-        let expression = MusathParser::parse(Rule::expr, input)
-            .unwrap()
-            .next()
-            .unwrap();
-
-        PRATT_PARSER
-            .map_primary(|primary| match primary.as_rule() {
-                Rule::number => Expression::Number(primary.as_str().parse::<f64>().unwrap()),
-                Rule::ident => Expression::Identifier(primary.as_str().to_string()),
-                Rule::func_call => {
-                    let mut pairs = primary.into_inner();
-
-                    let pair = pairs.next().unwrap();
-
-                    match pair.as_rule() {
-                        Rule::ident => {
-                            let identifier = pair.as_str().to_string();
-
-                            let mut arguments = Vec::new();
-
-                            for pair in pairs {
-                                match pair.as_rule() {
-                                    Rule::expr => arguments.push(Expression::parse(pair.as_str())),
-                                    rule => unreachable!("expected expression, found {:?}", rule),
-                                }
-                            }
-
-                            Self::FunctionCall {
-                                identifier,
-                                arguments,
-                            }
-                        }
-                        rule => unreachable!("expected identifier, found {:?}", rule),
-                    }
-                }
-                Rule::expr => Expression::Expression(Box::new(Expression::parse(primary.as_str()))),
-                rule => unreachable!("Expr::parse expected number, found {:?}", rule),
-            })
-            .map_prefix(|op, right| {
-                let op = match op.as_rule() {
-                    Rule::neg => PrefixUnOp::Negate,
-                    rule => unreachable!("expected prefix operation, found {:?}", rule),
-                };
-
-                Expression::PrefixUnOp {
-                    op,
-                    right: Box::new(right),
-                }
-            })
-            .map_infix(|left, op, right| {
-                let op = match op.as_rule() {
-                    Rule::add => InfixBinOp::Add,
-                    Rule::sub => InfixBinOp::Subtract,
-                    Rule::mul => InfixBinOp::Multiply,
-                    Rule::div => InfixBinOp::Divide,
-                    Rule::pow => InfixBinOp::Power,
-                    Rule::modulo => InfixBinOp::Modulo,
-                    rule => unreachable!("expected infix operation, found {:?}", rule),
-                };
-
-                Expression::InfixBinOp {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(right),
-                }
-            })
-            .parse(expression.into_inner())
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Self {
+        let remainder_pair = pairs.next().unwrap();
+        assert!(
+            matches!(remainder_pair.as_rule(), Rule::remainder),
+            "expected remainder, found {:?}",
+            remainder_pair
+        );
+        Remainder::parse(&mut remainder_pair.into_inner())
     }
 
     pub fn eval(&self, context: &Context) -> f64 {
         match self {
-            Self::Expression(expression) => expression.eval(context),
-            Self::Number(number) => *number,
-            Self::Identifier(identifier) => *context
-                .values()
-                .get(identifier)
-                .unwrap()
-                .last()
-                .unwrap_or_else(|| {
-                    BUILT_IN_NUMBERS
-                        .get(identifier)
-                        .expect(&format!("undefined identifier {}", identifier))
-                }),
-            Self::FunctionCall {
-                identifier,
-                arguments,
-            } => {
-                if let Some(function) = context.functions().get(identifier) {
-                    let mut inner_context = context.clone();
-
-                    for (identifier, value) in function.signature().parameters().iter().zip(arguments.iter()) {
-                        inner_context.push_value(identifier, value.eval(&context));
-                    }
-
-                    function.eval(&inner_context)
-                } else {
-                    let builtin = BUILT_IN_FUNCTIONS
-                        .get(identifier)
-                        .expect(&format!("undefined function {}", identifier));
-
-                    builtin(context, arguments)
-                }
+            Self::Binary(left, operator, right) => {
+                operator.eval(left.eval(context), right.eval(context))
             }
-            Self::PrefixUnOp { op, right } => op.eval(right.eval(context)),
-            Self::InfixBinOp { left, op, right } => {
-                op.eval(left.eval(context), right.eval(context))
-            }
+            Self::Unary(operator, operand) => operator.eval(operand.eval(context)),
+            Self::Primary(primary) => primary.eval(context),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InfixBinOp {
+pub struct Remainder;
+
+impl Remainder {
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Expression {
+        let first_term_pair = pairs.next().unwrap();
+        assert!(
+            matches!(first_term_pair.as_rule(), Rule::term),
+            "expected term, found {:?}",
+            first_term_pair
+        );
+        let first_term = Term::parse(&mut first_term_pair.into_inner());
+
+        let mut remainder = first_term;
+
+        while let Some(operator_pair) = pairs.next() {
+            let next_term_pair = pairs.next().unwrap();
+            assert!(
+                matches!(next_term_pair.as_rule(), Rule::term),
+                "expected term, found {:?}",
+                next_term_pair
+            );
+            let next_term = Term::parse(&mut next_term_pair.into_inner());
+
+            let operator = match operator_pair.as_rule() {
+                Rule::rem => BinaryOperator::Remainder,
+                _ => unreachable!("expected %, found {}", operator_pair),
+            };
+
+            remainder = Expression::Binary(Box::new(remainder), operator, Box::new(next_term))
+        }
+
+        remainder
+    }
+}
+
+pub struct Term;
+
+impl Term {
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Expression {
+        let first_factor_pair = pairs.next().unwrap();
+        assert!(
+            matches!(first_factor_pair.as_rule(), Rule::factor),
+            "expected factor, found {:?}",
+            first_factor_pair
+        );
+        let first_factor = Factor::parse(&mut first_factor_pair.into_inner());
+
+        let mut term = first_factor;
+
+        while let Some(operator_pair) = pairs.next() {
+            let next_factor_pair = pairs.next().unwrap();
+            assert!(
+                matches!(next_factor_pair.as_rule(), Rule::factor),
+                "expected factor, found {:?}",
+                next_factor_pair
+            );
+            let next_factor = Factor::parse(&mut next_factor_pair.into_inner());
+
+            let operator = match operator_pair.as_rule() {
+                Rule::add => BinaryOperator::Add,
+                Rule::sub => BinaryOperator::Subtract,
+                _ => unreachable!("expected + or -, found {}", operator_pair),
+            };
+
+            term = Expression::Binary(Box::new(term), operator, Box::new(next_factor))
+        }
+
+        term
+    }
+}
+
+pub struct Factor;
+
+impl Factor {
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Expression {
+        let first_power_pair = pairs.next().unwrap();
+        assert!(
+            matches!(first_power_pair.as_rule(), Rule::power),
+            "expected power, found {:?}",
+            first_power_pair
+        );
+        let first_power = Power::parse(&mut first_power_pair.into_inner());
+
+        let mut factor = first_power;
+
+        while let Some(operator_pair) = pairs.next() {
+            let next_power_pair = pairs.next().unwrap();
+            assert!(
+                matches!(next_power_pair.as_rule(), Rule::power),
+                "expected factor, found {:?}",
+                next_power_pair
+            );
+            let next_power = Power::parse(&mut next_power_pair.into_inner());
+
+            let operator = match operator_pair.as_rule() {
+                Rule::mul => BinaryOperator::Multiply,
+                Rule::div => BinaryOperator::Divide,
+                _ => unreachable!("expected * or /, found {}", operator_pair),
+            };
+
+            factor = Expression::Binary(Box::new(factor), operator, Box::new(next_power))
+        }
+
+        factor
+    }
+}
+
+pub struct Power;
+
+impl Power {
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Expression {
+        let first_unary_pair = pairs.next().unwrap();
+        assert!(
+            matches!(first_unary_pair.as_rule(), Rule::unary),
+            "expected unary, found {:?}",
+            first_unary_pair
+        );
+        let first_unary = Unary::parse(&mut first_unary_pair.into_inner());
+
+        let mut power = first_unary;
+
+        if let Some(operator_pair) = pairs.next() {
+            let next_power = Power::parse(pairs);
+
+            let operator = match operator_pair.as_rule() {
+                Rule::pow => BinaryOperator::Exponentiate,
+                _ => unreachable!("expected ^, found {}", operator_pair),
+            };
+
+            power = Expression::Binary(Box::new(power), operator, Box::new(next_power))
+        }
+
+        power
+    }
+}
+
+pub struct Unary;
+
+impl Unary {
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Expression {
+        let first_pair = pairs.next().unwrap();
+
+        match first_pair.as_rule() {
+            Rule::neg => {
+                let unary_pair = pairs.next().unwrap();
+
+                Expression::Unary(
+                    UnaryOperator::Negate,
+                    Box::new(Unary::parse(&mut unary_pair.into_inner())),
+                )
+            }
+            Rule::primary => Primary::parse(&mut first_pair.into_inner()),
+            _ => unreachable!("expected negation or primary, found {:?}", first_pair),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnaryOperator {
+    Negate,
+}
+
+impl UnaryOperator {
+    pub fn eval(&self, operand: f64) -> f64 {
+        match self {
+            Self::Negate => -operand,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BinaryOperator {
     Add,
     Subtract,
     Multiply,
     Divide,
-    Power,
-    Modulo,
+    Exponentiate,
+    Remainder,
 }
 
-impl InfixBinOp {
+impl BinaryOperator {
     pub fn eval(&self, left: f64, right: f64) -> f64 {
         match self {
             Self::Add => left + right,
             Self::Subtract => left - right,
             Self::Multiply => left * right,
             Self::Divide => left / right,
-            Self::Power => left.powf(right),
-            Self::Modulo => left % right,
+            Self::Exponentiate => left.powf(right),
+            Self::Remainder => left % right,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PrefixUnOp {
-    Negate,
+#[derive(Debug, Clone, PartialEq)]
+pub enum Primary {
+    Number(f64),
+    Call(String, Vec<Box<Expression>>),
+    Identifier(String),
+    Grouping(Box<Expression>),
 }
 
-impl PrefixUnOp {
-    pub fn eval(&self, right: f64) -> f64 {
+impl Primary {
+    pub fn parse(pairs: &mut Pairs<Rule>) -> Expression {
+        let pair = pairs.next().unwrap();
+
+        Expression::Primary(match pair.as_rule() {
+            Rule::number => Self::Number(pair.as_str().parse::<f64>().unwrap()),
+            Rule::function_call => {
+                let mut pairs = pair.into_inner();
+
+                let identifier_pair = pairs.next().unwrap();
+                let identifier = identifier_pair.as_str().to_string();
+
+                let arguments = pairs
+                    .map(|expression_pair| {
+                        Box::new(Expression::parse(&mut expression_pair.into_inner()))
+                    })
+                    .collect();
+
+                Self::Call(identifier, arguments)
+            }
+            Rule::identifier => Self::Identifier(pair.as_str().to_string()),
+            Rule::expression => Self::Grouping(Box::new(Expression::parse(&mut pair.into_inner()))),
+            _ => unreachable!(
+                "expected number, identifier, or grouped expression, found {}",
+                pair
+            ),
+        })
+    }
+
+    pub fn eval(&self, context: &Context) -> f64 {
         match self {
-            Self::Negate => -right,
+            Self::Number(number) => *number,
+            Self::Call(identifier, arguments) => {
+                let function = context
+                    .function(identifier)
+                    .unwrap_or_else(|| panic!("undefined function {}", identifier));
+
+                let mut inner_context = context.clone();
+
+                for (parameter_identifier, argument_expression) in function
+                    .signature()
+                    .parameters()
+                    .iter()
+                    .zip(arguments.iter())
+                {
+                    inner_context
+                        .push_value(parameter_identifier, argument_expression.eval(context));
+                }
+
+                function.eval(arguments, &inner_context)
+            }
+            Self::Identifier(identifier) => *context
+                .value(identifier)
+                .unwrap_or_else(|| panic!("undefined identifier {}", identifier)),
+            Self::Grouping(expression) => expression.eval(context),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::PI;
+    use pest::Parser;
+
+    use crate::MusathParser;
 
     use super::*;
 
     #[test]
-    fn test_expression() {
-        let mut context = Context::new();
+    fn test_parse_primary() {
+        assert_eq!(
+            Primary::parse(
+                &mut MusathParser::parse(Rule::primary, "1")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Primary(Primary::Number(1.0)),
+        );
 
-        assert_eq!(Expression::parse("1.0").eval(&context), 1.0);
+        assert_eq!(
+            Primary::parse(
+                &mut MusathParser::parse(Rule::primary, "2.3")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Primary(Primary::Number(2.3)),
+        );
 
-        context.push_value("t", 2.0);
+        assert_eq!(
+            Primary::parse(
+                &mut MusathParser::parse(Rule::primary, "test")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Primary(Primary::Identifier(String::from("test"))),
+        );
 
-        assert_eq!(Expression::parse("t^2").eval(&context), 4.0);
+        assert_eq!(
+            Primary::parse(
+                &mut MusathParser::parse(Rule::primary, "(1)")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Primary(Primary::Grouping(Box::new(Expression::Primary(
+                Primary::Number(1.0)
+            )))),
+        );
 
-        context.push_value("pi", PI);
+        assert_eq!(
+            Primary::parse(
+                &mut MusathParser::parse(Rule::primary, "test(1)")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Primary(Primary::Call(
+                String::from("test"),
+                vec![Box::new(Expression::Primary(Primary::Number(1.0)))]
+            )),
+        );
 
-        assert_eq!(Expression::parse("sin(2*pi)").eval(&context), 0.0);
+        assert_eq!(
+            Primary::parse(
+                &mut MusathParser::parse(Rule::primary, "test( 1 , 2 + 3 )")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Primary(Primary::Call(
+                String::from("test"),
+                vec![
+                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    Box::new(Expression::Binary(
+                        Box::new(Expression::Primary(Primary::Number(2.0))),
+                        BinaryOperator::Add,
+                        Box::new(Expression::Primary(Primary::Number(3.0))),
+                    )),
+                ]
+            )),
+        );
+    }
+
+    #[test]
+    fn test_parse_unary() {
+        assert_eq!(
+            Unary::parse(
+                &mut MusathParser::parse(Rule::unary, "1")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Primary(Primary::Number(1.0)),
+        );
+
+        assert_eq!(
+            Unary::parse(
+                &mut MusathParser::parse(Rule::unary, "-1")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Unary(
+                UnaryOperator::Negate,
+                Box::new(Expression::Primary(Primary::Number(1.0)))
+            ),
+        );
+
+        assert_eq!(
+            Unary::parse(
+                &mut MusathParser::parse(Rule::unary, "--1")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Unary(
+                UnaryOperator::Negate,
+                Box::new(Expression::Unary(
+                    UnaryOperator::Negate,
+                    Box::new(Expression::Primary(Primary::Number(1.0)))
+                ))
+            ),
+        );
+    }
+
+    #[test]
+    fn test_parse_power() {
+        assert_eq!(
+            Power::parse(
+                &mut MusathParser::parse(Rule::power, "1^2")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Primary(Primary::Number(1.0))),
+                BinaryOperator::Exponentiate,
+                Box::new(Expression::Primary(Primary::Number(2.0))),
+            ),
+        );
+
+        assert_eq!(
+            Power::parse(
+                &mut MusathParser::parse(Rule::power, "1^2^3")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Primary(Primary::Number(1.0))),
+                BinaryOperator::Exponentiate,
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                    BinaryOperator::Exponentiate,
+                    Box::new(Expression::Primary(Primary::Number(3.0))),
+                )),
+            ),
+        );
+
+        assert_eq!(
+            Power::parse(
+                &mut MusathParser::parse(Rule::power, "(1^2)^3")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Primary(Primary::Grouping(Box::new(
+                    Expression::Binary(
+                        Box::new(Expression::Primary(Primary::Number(1.0))),
+                        BinaryOperator::Exponentiate,
+                        Box::new(Expression::Primary(Primary::Number(2.0))),
+                    )
+                )))),
+                BinaryOperator::Exponentiate,
+                Box::new(Expression::Primary(Primary::Number(3.0))),
+            ),
+        );
+    }
+
+    #[test]
+    fn test_parse_term() {
+        assert_eq!(
+            Term::parse(
+                &mut MusathParser::parse(Rule::term, "1 + 2")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Primary(Primary::Number(1.0))),
+                BinaryOperator::Add,
+                Box::new(Expression::Primary(Primary::Number(2.0))),
+            ),
+        );
+
+        assert_eq!(
+            Term::parse(
+                &mut MusathParser::parse(Rule::term, "1 + 2 - 3")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    BinaryOperator::Add,
+                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                )),
+                BinaryOperator::Subtract,
+                Box::new(Expression::Primary(Primary::Number(3.0))),
+            ),
+        );
+
+        assert_eq!(
+            Term::parse(
+                &mut MusathParser::parse(Rule::term, "1 + -2 - 3")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    BinaryOperator::Add,
+                    Box::new(Expression::Unary(
+                        UnaryOperator::Negate,
+                        Box::new(Expression::Primary(Primary::Number(2.0)))
+                    )),
+                )),
+                BinaryOperator::Subtract,
+                Box::new(Expression::Primary(Primary::Number(3.0))),
+            ),
+        );
+    }
+
+    #[test]
+    fn test_parse_remainder() {
+        let remainder = Remainder::parse(
+            &mut MusathParser::parse(Rule::remainder, "1 % 2")
+                .unwrap()
+                .next()
+                .unwrap()
+                .into_inner(),
+        );
+
+        assert_eq!(
+            remainder,
+            Expression::Binary(
+                Box::new(Expression::Primary(Primary::Number(1.0))),
+                BinaryOperator::Remainder,
+                Box::new(Expression::Primary(Primary::Number(2.0))),
+            ),
+        );
+
+        assert_eq!(remainder.eval(&Context::default()), 1.0);
+
+        let remainder = Remainder::parse(
+            &mut MusathParser::parse(Rule::remainder, "3.5 % 2")
+                .unwrap()
+                .next()
+                .unwrap()
+                .into_inner(),
+        );
+
+        assert_eq!(
+            remainder,
+            Expression::Binary(
+                Box::new(Expression::Primary(Primary::Number(3.5))),
+                BinaryOperator::Remainder,
+                Box::new(Expression::Primary(Primary::Number(2.0))),
+            ),
+        );
+
+        assert_eq!(remainder.eval(&Context::default()), 1.5);
+    }
+
+    #[test]
+    fn test_parse_expression() {
+        assert_eq!(
+            Expression::parse(
+                &mut MusathParser::parse(Rule::expression, "1 + 2")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Primary(Primary::Number(1.0))),
+                BinaryOperator::Add,
+                Box::new(Expression::Primary(Primary::Number(2.0))),
+            ),
+        );
+
+        assert_eq!(
+            Expression::parse(
+                &mut MusathParser::parse(Rule::expression, "1 + 2 - 3")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    BinaryOperator::Add,
+                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                )),
+                BinaryOperator::Subtract,
+                Box::new(Expression::Primary(Primary::Number(3.0))),
+            ),
+        );
+
+        assert_eq!(
+            Expression::parse(
+                &mut MusathParser::parse(Rule::expression, "1 * 2 + 3 * 4")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    BinaryOperator::Multiply,
+                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                )),
+                BinaryOperator::Add,
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Primary(Primary::Number(3.0))),
+                    BinaryOperator::Multiply,
+                    Box::new(Expression::Primary(Primary::Number(4.0))),
+                )),
+            ),
+        );
+
+        assert_eq!(
+            Expression::parse(
+                &mut MusathParser::parse(Rule::expression, "-1 * 2 + 3 / 4")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Unary(
+                        UnaryOperator::Negate,
+                        Box::new(Expression::Primary(Primary::Number(1.0)))
+                    )),
+                    BinaryOperator::Multiply,
+                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                )),
+                BinaryOperator::Add,
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Primary(Primary::Number(3.0))),
+                    BinaryOperator::Divide,
+                    Box::new(Expression::Primary(Primary::Number(4.0))),
+                )),
+            ),
+        );
+
+        assert_eq!(
+            Expression::parse(
+                &mut MusathParser::parse(Rule::expression, "2 ^ 3")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Primary(Primary::Number(2.0))),
+                BinaryOperator::Exponentiate,
+                Box::new(Expression::Primary(Primary::Number(3.0))),
+            ),
+        );
+
+        assert_eq!(
+            Expression::parse(
+                &mut MusathParser::parse(Rule::expression, "1 + 2 ^ 3")
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .into_inner()
+            ),
+            Expression::Binary(
+                Box::new(Expression::Primary(Primary::Number(1.0))),
+                BinaryOperator::Add,
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                    BinaryOperator::Exponentiate,
+                    Box::new(Expression::Primary(Primary::Number(3.0))),
+                )),
+            ),
+        );
+
+        let expression = Expression::parse(
+            &mut MusathParser::parse(Rule::expression, "-1 * 2 + 3 / 4 ^ 5")
+                .unwrap()
+                .next()
+                .unwrap()
+                .into_inner(),
+        );
+
+        assert_eq!(
+            expression,
+            Expression::Binary(
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Unary(
+                        UnaryOperator::Negate,
+                        Box::new(Expression::Primary(Primary::Number(1.0)))
+                    )),
+                    BinaryOperator::Multiply,
+                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                )),
+                BinaryOperator::Add,
+                Box::new(Expression::Binary(
+                    Box::new(Expression::Primary(Primary::Number(3.0))),
+                    BinaryOperator::Divide,
+                    Box::new(Expression::Binary(
+                        Box::new(Expression::Primary(Primary::Number(4.0))),
+                        BinaryOperator::Exponentiate,
+                        Box::new(Expression::Primary(Primary::Number(5.0))),
+                    )),
+                )),
+            ),
+        );
+
+        assert_eq!(expression.eval(&Context::default()), -2.0 + (3.0 / 1024.0));
     }
 }
