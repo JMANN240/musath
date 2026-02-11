@@ -4,7 +4,7 @@ use crate::{
     Rule,
     body::Body,
     expression::{Expression, Primary},
-    header::Header,
+    header::Header, wave_provider::WaveProvider,
 };
 
 #[derive(Debug)]
@@ -63,5 +63,11 @@ impl Document {
             )))],
             &context,
         )
+    }
+}
+
+impl WaveProvider for Document {
+    fn value_at_time(&self, t: f64) -> f64 {
+        self.eval(t)
     }
 }

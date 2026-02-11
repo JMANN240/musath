@@ -4,7 +4,7 @@ use hound::{WavSpec, WavWriter};
 use rayon::prelude::*;
 use tracing::debug;
 
-use crate::{document::Document, renderer::Renderer};
+use crate::{composition::Composition, renderer::Renderer};
 
 
 
@@ -30,12 +30,12 @@ impl Default for ParallelRenderer {
 }
 
 impl Renderer for ParallelRenderer {
-    fn render(&self, document: Document) -> Result<(), hound::Error> {
+    fn render(&self, composition: &Composition) -> Result<(), hound::Error> {
         debug!("creating spec");
 
-        let title = document.header().title().unwrap_or("output");
+        let title = composition.title().map(String::as_str).unwrap_or("output");
 
-        let duration_seconds = document.header().duration().unwrap_or(10.0);
+        let duration_seconds = composition.duration().unwrap_or(10.0);
 
         debug!("calculating total samples");
         let total_samples =
@@ -53,7 +53,7 @@ impl Renderer for ParallelRenderer {
             .map(|i| {
                 let t = i as f64 / self.spec.sample_rate as f64;
 
-                let value = document.eval(t) as f32;
+                let value = composition.wave_provider().value_at_time(t) as f32;
 
                 let mut lock = samples_completed.lock().unwrap();
                 *lock += 1;

@@ -1,9 +1,7 @@
 use std::path::PathBuf;
 
 use musath::{
-    MusathParser, Rule,
-    document::Document,
-    renderer::{Renderer, parallel_renderer::ParallelRenderer, serial_renderer::SerialRenderer},
+    MusathParser, Rule, composition::Composition, document::Document, renderer::{Renderer, parallel_renderer::ParallelRenderer, serial_renderer::SerialRenderer}
 };
 use pest::Parser;
 use tracing::info;
@@ -50,7 +48,7 @@ fn main() {
         RendererOption::Parallel => Box::new(ParallelRenderer::default()) as Box<dyn Renderer>,
     };
 
-    renderer.render(document).unwrap();
+    renderer.render(&Composition::from_document(document)).unwrap();
 
     info!("Rendered!");
 }
