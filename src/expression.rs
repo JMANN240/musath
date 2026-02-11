@@ -219,7 +219,7 @@ impl BinaryOperator {
             Self::Multiply => left * right,
             Self::Divide => left / right,
             Self::Exponentiate => left.powf(right),
-            Self::Remainder => left % right,
+            Self::Remainder => left.rem_euclid(right),
         }
     }
 }

@@ -24,7 +24,7 @@ string_outer = _{ "\"" ~ string ~ "\"" }
 string = { string_inner* }
 string_inner = _{ !("\"") ~ ASCII }
 
-function = { function_signature ~ "=" ~ expression }
+function = { function_signature ~ "=" ~ expression ~ ";" }
 function_signature = ${ identifier ~ "(" ~ WHITESPACE* ~ identifier? ~ ( WHITESPACE* ~ "," ~ WHITESPACE* ~ identifier )* ~ WHITESPACE* ~ ")" }
 function_call = ${ identifier ~ "(" ~ WHITESPACE* ~ expression? ~ ( WHITESPACE* ~ "," ~ WHITESPACE* ~ expression )* ~ WHITESPACE* ~ ")" }
 

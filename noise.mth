@@ -1,0 +1,16 @@
+TITLE = "noise"
+DURATION = 10
+
+decay(t,period,tension,phase_shift) = (1 - (t - phase_shift % period) / period)^tension;
+attack(t,period,tension,phase_shift) = ((t - phase_shift % period) / period)^tension;
+envelope(t,period,decay_tension,attack_tension,phase_shift) = decay(t,period,decay_tension,phase_shift) + attack(t,period,attack_tension,phase_shift);
+noise(t) = sin(2^(t+100))^2;
+
+step(t, freq) = floor((t * freq * 2) % 2);
+voice(t) = step(t, 440) / 10 * prod(n,1,4,-step(t, n) + 1);
+square(t) = sum(n,1,5,voice(t-(n*0.25-0.25)) / 4^(n-1));
+
+output(t) =
+    noise(t) * decay(t, 1, 8, 0.5) +
+    sin(110 * t * tau) * decay(t, 1, 8, 0) +
+    square(t);
