@@ -1,0 +1,8 @@
+TITLE = "pulse"
+DURATION = 10
+
+after(x, t) = 0.5 * (1 + (x - t) / abs(x - t))
+before(x, t) = -0.5 * ((x - t) / abs(x - t) - 1)
+from_to(x, f, t) = after(x, f) * before(x, t)
+
+output(t) = sin(220 * t * tau) * from_to(t, 5, 5.25)

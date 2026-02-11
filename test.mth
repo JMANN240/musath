@@ -1,5 +1,7 @@
 TEST = "test"
+DURATION = 10
 
+step(t, freq) = floor((t * freq * 2) % 2)
 sine(t, freq) = sin(freq * t * tau)
-chirp(t, base_freq, range, secs) = sine(t, base_freq + (range * (t % secs)))
-output(t) = sin(tau*(440*(t%0.5)+220*(t%0.5)^2))
+chirp(t, base_freq, range, secs) = sin(tau * (base_freq * (t % secs) + range * (t % secs)^2))
+output(t) = sine(t, 440)
