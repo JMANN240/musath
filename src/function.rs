@@ -176,7 +176,7 @@ mod tests {
                 body: FunctionBody::Expression(Expression::Binary(
                     Box::new(Expression::Primary(Primary::Identifier(String::from("t")))),
                     BinaryOperator::Add,
-                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(1.0))),
                 ),),
             },
         );

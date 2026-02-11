@@ -226,7 +226,8 @@ impl BinaryOperator {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Primary {
-    Number(f64),
+    Decimal(f64),
+    Integer(i64),
     Call(String, Vec<Box<Expression>>),
     Identifier(String),
     Grouping(Box<Expression>),
@@ -237,7 +238,17 @@ impl Primary {
         let pair = pairs.next().unwrap();
 
         Expression::Primary(match pair.as_rule() {
-            Rule::number => Self::Number(pair.as_str().parse::<f64>().unwrap()),
+            Rule::number => {
+                let mut pairs = pair.into_inner();
+
+                let specific_pair = pairs.next().unwrap();
+
+                match specific_pair.as_rule() {
+                    Rule::decimal => Self::Decimal(specific_pair.as_str().parse::<f64>().unwrap()),
+                    Rule::integer => Self::Integer(specific_pair.as_str().parse::<i64>().unwrap()),
+                    _ => unreachable!("expected decimal or integer, found {:?}", specific_pair),
+                }
+            },
             Rule::function_call => {
                 let mut pairs = pair.into_inner();
 
@@ -263,7 +274,8 @@ impl Primary {
 
     pub fn eval(&self, context: &Context) -> f64 {
         match self {
-            Self::Number(number) => *number,
+            Self::Decimal(number) => *number,
+            Self::Integer(number) => *number as f64,
             Self::Call(identifier, arguments) => {
                 let function = context
                     .function(identifier)
@@ -309,7 +321,7 @@ mod tests {
                     .unwrap()
                     .into_inner()
             ),
-            Expression::Primary(Primary::Number(1.0)),
+            Expression::Primary(Primary::Decimal(1.0)),
         );
 
         assert_eq!(
@@ -320,7 +332,7 @@ mod tests {
                     .unwrap()
                     .into_inner()
             ),
-            Expression::Primary(Primary::Number(2.3)),
+            Expression::Primary(Primary::Decimal(2.3)),
         );
 
         assert_eq!(
@@ -343,7 +355,7 @@ mod tests {
                     .into_inner()
             ),
             Expression::Primary(Primary::Grouping(Box::new(Expression::Primary(
-                Primary::Number(1.0)
+                Primary::Decimal(1.0)
             )))),
         );
 
@@ -357,7 +369,7 @@ mod tests {
             ),
             Expression::Primary(Primary::Call(
                 String::from("test"),
-                vec![Box::new(Expression::Primary(Primary::Number(1.0)))]
+                vec![Box::new(Expression::Primary(Primary::Decimal(1.0)))]
             )),
         );
 
@@ -372,11 +384,11 @@ mod tests {
             Expression::Primary(Primary::Call(
                 String::from("test"),
                 vec![
-                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(1.0))),
                     Box::new(Expression::Binary(
-                        Box::new(Expression::Primary(Primary::Number(2.0))),
+                        Box::new(Expression::Primary(Primary::Decimal(2.0))),
                         BinaryOperator::Add,
-                        Box::new(Expression::Primary(Primary::Number(3.0))),
+                        Box::new(Expression::Primary(Primary::Decimal(3.0))),
                     )),
                 ]
             )),
@@ -393,7 +405,7 @@ mod tests {
                     .unwrap()
                     .into_inner()
             ),
-            Expression::Primary(Primary::Number(1.0)),
+            Expression::Primary(Primary::Decimal(1.0)),
         );
 
         assert_eq!(
@@ -406,7 +418,7 @@ mod tests {
             ),
             Expression::Unary(
                 UnaryOperator::Negate,
-                Box::new(Expression::Primary(Primary::Number(1.0)))
+                Box::new(Expression::Primary(Primary::Decimal(1.0)))
             ),
         );
 
@@ -422,7 +434,7 @@ mod tests {
                 UnaryOperator::Negate,
                 Box::new(Expression::Unary(
                     UnaryOperator::Negate,
-                    Box::new(Expression::Primary(Primary::Number(1.0)))
+                    Box::new(Expression::Primary(Primary::Decimal(1.0)))
                 ))
             ),
         );
@@ -439,9 +451,9 @@ mod tests {
                     .into_inner()
             ),
             Expression::Binary(
-                Box::new(Expression::Primary(Primary::Number(1.0))),
+                Box::new(Expression::Primary(Primary::Decimal(1.0))),
                 BinaryOperator::Exponentiate,
-                Box::new(Expression::Primary(Primary::Number(2.0))),
+                Box::new(Expression::Primary(Primary::Decimal(2.0))),
             ),
         );
 
@@ -454,12 +466,12 @@ mod tests {
                     .into_inner()
             ),
             Expression::Binary(
-                Box::new(Expression::Primary(Primary::Number(1.0))),
+                Box::new(Expression::Primary(Primary::Decimal(1.0))),
                 BinaryOperator::Exponentiate,
                 Box::new(Expression::Binary(
-                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(2.0))),
                     BinaryOperator::Exponentiate,
-                    Box::new(Expression::Primary(Primary::Number(3.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(3.0))),
                 )),
             ),
         );
@@ -475,13 +487,13 @@ mod tests {
             Expression::Binary(
                 Box::new(Expression::Primary(Primary::Grouping(Box::new(
                     Expression::Binary(
-                        Box::new(Expression::Primary(Primary::Number(1.0))),
+                        Box::new(Expression::Primary(Primary::Decimal(1.0))),
                         BinaryOperator::Exponentiate,
-                        Box::new(Expression::Primary(Primary::Number(2.0))),
+                        Box::new(Expression::Primary(Primary::Decimal(2.0))),
                     )
                 )))),
                 BinaryOperator::Exponentiate,
-                Box::new(Expression::Primary(Primary::Number(3.0))),
+                Box::new(Expression::Primary(Primary::Decimal(3.0))),
             ),
         );
     }
@@ -497,9 +509,9 @@ mod tests {
                     .into_inner()
             ),
             Expression::Binary(
-                Box::new(Expression::Primary(Primary::Number(1.0))),
+                Box::new(Expression::Primary(Primary::Decimal(1.0))),
                 BinaryOperator::Add,
-                Box::new(Expression::Primary(Primary::Number(2.0))),
+                Box::new(Expression::Primary(Primary::Decimal(2.0))),
             ),
         );
 
@@ -513,12 +525,12 @@ mod tests {
             ),
             Expression::Binary(
                 Box::new(Expression::Binary(
-                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(1.0))),
                     BinaryOperator::Add,
-                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(2.0))),
                 )),
                 BinaryOperator::Subtract,
-                Box::new(Expression::Primary(Primary::Number(3.0))),
+                Box::new(Expression::Primary(Primary::Decimal(3.0))),
             ),
         );
 
@@ -532,15 +544,15 @@ mod tests {
             ),
             Expression::Binary(
                 Box::new(Expression::Binary(
-                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(1.0))),
                     BinaryOperator::Add,
                     Box::new(Expression::Unary(
                         UnaryOperator::Negate,
-                        Box::new(Expression::Primary(Primary::Number(2.0)))
+                        Box::new(Expression::Primary(Primary::Decimal(2.0)))
                     )),
                 )),
                 BinaryOperator::Subtract,
-                Box::new(Expression::Primary(Primary::Number(3.0))),
+                Box::new(Expression::Primary(Primary::Decimal(3.0))),
             ),
         );
     }
@@ -558,9 +570,9 @@ mod tests {
         assert_eq!(
             remainder,
             Expression::Binary(
-                Box::new(Expression::Primary(Primary::Number(1.0))),
+                Box::new(Expression::Primary(Primary::Decimal(1.0))),
                 BinaryOperator::Remainder,
-                Box::new(Expression::Primary(Primary::Number(2.0))),
+                Box::new(Expression::Primary(Primary::Decimal(2.0))),
             ),
         );
 
@@ -577,9 +589,9 @@ mod tests {
         assert_eq!(
             remainder,
             Expression::Binary(
-                Box::new(Expression::Primary(Primary::Number(3.5))),
+                Box::new(Expression::Primary(Primary::Decimal(3.5))),
                 BinaryOperator::Remainder,
-                Box::new(Expression::Primary(Primary::Number(2.0))),
+                Box::new(Expression::Primary(Primary::Decimal(2.0))),
             ),
         );
 
@@ -597,9 +609,9 @@ mod tests {
                     .into_inner()
             ),
             Expression::Binary(
-                Box::new(Expression::Primary(Primary::Number(1.0))),
+                Box::new(Expression::Primary(Primary::Decimal(1.0))),
                 BinaryOperator::Add,
-                Box::new(Expression::Primary(Primary::Number(2.0))),
+                Box::new(Expression::Primary(Primary::Decimal(2.0))),
             ),
         );
 
@@ -613,12 +625,12 @@ mod tests {
             ),
             Expression::Binary(
                 Box::new(Expression::Binary(
-                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(1.0))),
                     BinaryOperator::Add,
-                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(2.0))),
                 )),
                 BinaryOperator::Subtract,
-                Box::new(Expression::Primary(Primary::Number(3.0))),
+                Box::new(Expression::Primary(Primary::Decimal(3.0))),
             ),
         );
 
@@ -632,15 +644,15 @@ mod tests {
             ),
             Expression::Binary(
                 Box::new(Expression::Binary(
-                    Box::new(Expression::Primary(Primary::Number(1.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(1.0))),
                     BinaryOperator::Multiply,
-                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(2.0))),
                 )),
                 BinaryOperator::Add,
                 Box::new(Expression::Binary(
-                    Box::new(Expression::Primary(Primary::Number(3.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(3.0))),
                     BinaryOperator::Multiply,
-                    Box::new(Expression::Primary(Primary::Number(4.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(4.0))),
                 )),
             ),
         );
@@ -657,16 +669,16 @@ mod tests {
                 Box::new(Expression::Binary(
                     Box::new(Expression::Unary(
                         UnaryOperator::Negate,
-                        Box::new(Expression::Primary(Primary::Number(1.0)))
+                        Box::new(Expression::Primary(Primary::Decimal(1.0)))
                     )),
                     BinaryOperator::Multiply,
-                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(2.0))),
                 )),
                 BinaryOperator::Add,
                 Box::new(Expression::Binary(
-                    Box::new(Expression::Primary(Primary::Number(3.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(3.0))),
                     BinaryOperator::Divide,
-                    Box::new(Expression::Primary(Primary::Number(4.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(4.0))),
                 )),
             ),
         );
@@ -680,9 +692,9 @@ mod tests {
                     .into_inner()
             ),
             Expression::Binary(
-                Box::new(Expression::Primary(Primary::Number(2.0))),
+                Box::new(Expression::Primary(Primary::Decimal(2.0))),
                 BinaryOperator::Exponentiate,
-                Box::new(Expression::Primary(Primary::Number(3.0))),
+                Box::new(Expression::Primary(Primary::Decimal(3.0))),
             ),
         );
 
@@ -695,12 +707,12 @@ mod tests {
                     .into_inner()
             ),
             Expression::Binary(
-                Box::new(Expression::Primary(Primary::Number(1.0))),
+                Box::new(Expression::Primary(Primary::Decimal(1.0))),
                 BinaryOperator::Add,
                 Box::new(Expression::Binary(
-                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(2.0))),
                     BinaryOperator::Exponentiate,
-                    Box::new(Expression::Primary(Primary::Number(3.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(3.0))),
                 )),
             ),
         );
@@ -719,19 +731,19 @@ mod tests {
                 Box::new(Expression::Binary(
                     Box::new(Expression::Unary(
                         UnaryOperator::Negate,
-                        Box::new(Expression::Primary(Primary::Number(1.0)))
+                        Box::new(Expression::Primary(Primary::Decimal(1.0)))
                     )),
                     BinaryOperator::Multiply,
-                    Box::new(Expression::Primary(Primary::Number(2.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(2.0))),
                 )),
                 BinaryOperator::Add,
                 Box::new(Expression::Binary(
-                    Box::new(Expression::Primary(Primary::Number(3.0))),
+                    Box::new(Expression::Primary(Primary::Decimal(3.0))),
                     BinaryOperator::Divide,
                     Box::new(Expression::Binary(
-                        Box::new(Expression::Primary(Primary::Number(4.0))),
+                        Box::new(Expression::Primary(Primary::Decimal(4.0))),
                         BinaryOperator::Exponentiate,
-                        Box::new(Expression::Primary(Primary::Number(5.0))),
+                        Box::new(Expression::Primary(Primary::Decimal(5.0))),
                     )),
                 )),
             ),

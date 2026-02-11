@@ -1,5 +1,4 @@
 use pest::iterators::Pairs;
-use tracing::debug;
 
 use crate::{
     Rule,
@@ -54,20 +53,15 @@ impl Document {
             .get("output")
             .expect("missing output function");
 
-        debug!("cloning");
         let mut context = self.body().context().clone();
 
         context.push_value("t", t);
 
-        debug!("eval");
-        let value = output.eval(
+        output.eval(
             &[Box::new(Expression::Primary(Primary::Identifier(
                 String::from("t"),
             )))],
             &context,
-        );
-
-        debug!("done");
-        value
+        )
     }
 }
