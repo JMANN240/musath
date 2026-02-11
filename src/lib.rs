@@ -14,6 +14,7 @@ pub mod document;
 pub mod expression;
 pub mod function;
 pub mod header;
+pub mod renderer;
 
 #[derive(pest_derive::Parser)]
 #[grammar = "musath.pest"]

@@ -30,6 +30,32 @@ impl Header {
     pub fn key_values(&self) -> &HashMap<String, HeaderValue> {
         &self.key_values
     }
+
+    pub fn title(&self) -> Option<&str> {
+        self
+            .key_values()
+            .get("TITLE")
+            .map(|header_value| {
+                let HeaderValue::String(title) = header_value else {
+                    panic!("expected TITLE to be a string, found {:?}", header_value);
+                };
+
+                title.as_str()
+            })
+    }
+
+    pub fn duration(&self) -> Option<f64> {
+        self
+            .key_values()
+            .get("DURATION")
+            .map(|header_value| {
+                let HeaderValue::Number(duration_seconds) = header_value else {
+                    panic!("expected DURATION to be a number, found {:?}", header_value);
+                };
+
+                *duration_seconds
+            })
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]

@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
-use chrono::Duration;
-use musath::{MusathParser, Rule, document::Document, header::HeaderValue, render};
+use musath::{
+    MusathParser, Rule,
+    document::Document,
+    renderer::{Renderer, parallel_renderer::ParallelRenderer, serial_renderer::SerialRenderer},
+};
 use pest::Parser;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -9,6 +12,15 @@ use tracing_subscriber::EnvFilter;
 #[derive(clap::Parser)]
 struct Args {
     path: PathBuf,
+
+    #[arg(short, long, value_enum, default_value_t = RendererOption::Parallel)]
+    renderer: RendererOption,
+}
+
+#[derive(Clone, clap::ValueEnum)]
+enum RendererOption {
+    Serial,
+    Parallel,
 }
 
 fn main() {
@@ -28,33 +40,17 @@ fn main() {
     let unparsed_file = std::fs::read_to_string(args.path).expect("cannot read file");
 
     info!("Parsing...");
-    let file = Document::parse(&mut MusathParser::parse(Rule::document, &unparsed_file).unwrap());
+    let document =
+        Document::parse(&mut MusathParser::parse(Rule::document, &unparsed_file).unwrap());
     info!("Parsed!");
 
-    let output_filename_header_value = file
-        .header()
-        .key_values()
-        .get("TITLE")
-        .cloned()
-        .unwrap_or(HeaderValue::String(String::from("output")));
-
-    let duration_header_value = file
-        .header()
-        .key_values()
-        .get("DURATION")
-        .cloned()
-        .unwrap_or(HeaderValue::Number(30.0));
-
     info!("Rendering...");
-    if let HeaderValue::String(output_filename) = output_filename_header_value
-        && let HeaderValue::Number(duration) = duration_header_value
-    {
-        render(
-            format!("{}.wav", output_filename),
-            Duration::new(duration as i64, 0).unwrap(),
-            file,
-        )
-        .unwrap();
-    }
+    let renderer = match args.renderer {
+        RendererOption::Serial => Box::new(SerialRenderer::default()) as Box<dyn Renderer>,
+        RendererOption::Parallel => Box::new(ParallelRenderer::default()) as Box<dyn Renderer>,
+    };
+
+    renderer.render(document).unwrap();
+
     info!("Rendered!");
 }
